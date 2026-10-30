@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>События</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root {
+  --bg: var(--tg-theme-secondary-bg-color, #efeff4);
+  --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #fff));
+  --text: var(--tg-theme-text-color, #000);
+  --hint: var(--tg-theme-hint-color, #8e8e93);
+  --link: var(--tg-theme-link-color, #2481cc);
+  --sep: var(--tg-theme-section-separator-color, rgba(0, 0, 0, .12));
+  --red: var(--tg-theme-destructive-text-color, #e53935);
+  --green: #31a24c;
+  --btn: var(--tg-theme-button-color, #2481cc);
+  --btn-text: var(--tg-theme-button-text-color, #fff);
+}
+* { box-sizing: border-box; margin: 0; }
+/* Один шрифт и один размер — как в интерфейсе Telegram (17 на iOS, 16 на Android) */
+html, body { background: var(--bg); color: var(--text); font: 16px/1.35 -apple-system, system-ui, Roboto, "Segoe UI", sans-serif; -webkit-text-size-adjust: 100%; }
+body.ios { font-size: 17px; }
+button, input, select { font: inherit; color: inherit; background: none; border: 0; outline: 0; padding: 0; }
+#app { padding: 4px 0 32px; }
+.h { display: flex; justify-content: space-between; color: var(--hint); padding: 20px 28px 6px; }
+.c { background: var(--card); margin: 0 12px; border-radius: 10px; overflow: hidden; }
+.gap { margin-top: 24px; }
+.r { display: flex; align-items: center; gap: 16px; min-height: 44px; padding: 10px 16px; position: relative; }
+.r + .r::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--sep); }
+.f { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n { font-variant-numeric: tabular-nums; }
+.neg, .danger { color: var(--red); }
+.pos { color: var(--green); }
+.hint { color: var(--hint); }
+.link { color: var(--link); }
+.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.r.tap:active { background: var(--sep); }
+input, select { flex: 1; min-width: 0; width: 100%; }
+input::placeholder { color: var(--hint); }
+input[type=checkbox] { flex: none; width: 22px; height: 22px; accent-color: var(--btn); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px 2px; }
+.chip { padding: 4px 10px; border-radius: 16px; background: var(--bg); }
+.chip.on { background: var(--btn); color: var(--btn-text); }
+.demo { display: block; width: calc(100% - 24px); margin: 24px 12px 0; padding: 12px; border-radius: 10px; background: var(--btn); color: var(--btn-text); }
+.msg { padding: 48px 16px; text-align: center; color: var(--hint); }
+</style>
+</head>
+<body>
+<div id="app"><div class="msg">Загрузка…</div></div>
+<script>
+// Адрес веб-приложения Apps Script (тот же, что у вебхука бота)
+const API = 'https://script.google.com/macros/s/AKfycbxeE5nvJhyfiQ1V8K7u-5njU5gEhv3Vwv4aHCvz-UU08zsVlsLVPJHenN95wRTgoLU/exec';
+const TERMS = ['29', '30', '1m', '3m', '6m', '12m'];
+
+const tg = window.Telegram && Telegram.WebApp;
+// Открыто не из Telegram — показываем пример данных, ничего не сохраняем
+const DEMO = !tg || !tg.initData;
+const app = document.getElementById('app');
+const $ = id => document.getElementById(id);
+let groups = [];
+let mainFn = null;
+let backFn = null;
+
+if (tg) {
+  tg.ready();
+  tg.expand();
+  if (tg.platform === 'ios' || tg.platform === 'macos') document.body.classList.add('ios');
+  if (!DEMO) {
+    tg.MainButton.onClick(() => mainFn && mainFn());
+    tg.BackButton.onClick(() => backFn && backFn());
+  }
+}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// ymd = 'yyyyMMdd' (как в скрипте), iso = 'yyyy-mm-dd' (как в поле даты)
+const ymdToIso = y => y ? `${y.slice(0, 4)}-${y.slice(4, 6)}-${y.slice(6, 8)}` : '';
+const isoToYmd = s => s ? s.replace(/-/g, '') : '';
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function say(text) { DEMO ? alert(text) : tg.showAlert(text); }
+function ask(text, cb) { DEMO ? cb(confirm(text)) : tg.showConfirm(text, cb); }
+
+async function api(action, data) {
+  if (DEMO) return demoApi(action);
+  const res = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ initData: tg.initData, action }, data)) });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Ошибка');
+  return json;
+}
+
+// Кнопки снизу и «назад» — родные кнопки Telegram; в демо — обычные
+function screen(html, opts = {}) {
+  app.innerHTML = (DEMO && opts.back ? '<div class="r tap link" id="dback">‹ Назад</div>' : '') + html +
+    (DEMO && opts.main ? `<button class="demo tap" id="dmain">${opts.main[0]}</button>` : '');
+  mainFn = opts.main ? opts.main[1] : null;
+  backFn = opts.back || null;
+  if (DEMO) {
+    if (opts.main) $('dmain').onclick = mainFn;
+    if (opts.back) $('dback').onclick = opts.back;
+  } else {
+    opts.main ? tg.MainButton.setText(opts.main[0]).show() : tg.MainButton.hide();
+    opts.back ? tg.BackButton.show() : tg.BackButton.hide();
+  }
+  window.scrollTo(0, 0);
+}
+
+// Изменение в таблице; в ответ всегда приходит свежий список
+async function run(action, data) {
+  if (!DEMO) tg.MainButton.showProgress();
+  try {
+    groups = (await api(action, data)).groups;
+    showList();
+  } catch (err) {
+    say(err.message);
+  } finally {
+    if (!DEMO) tg.MainButton.hideProgress();
+  }
+}
+
+async function load() {
+  try {
+    groups = (await api('list')).groups;
+    showList();
+  } catch (err) {
+    app.innerHTML = `<div class="msg">${esc(err.message)}</div>`;
+  }
+}
+
+
+// ====== Список ======
+function daysHtml(e) {
+  if (!e.start && !e.noReset) return '<span class="hint">пауза</span>';
+  if (e.days === null) return '';
+  return `<span class="n ${e.days < 0 ? 'neg' : 'pos'}">${e.days}</span>`;
+}
+
+function showList() {
+  let html = '';
+  groups.forEach((g, gi) => {
+    html += `<div class="h"><span>${esc(g.name || 'Без группы')}</span>` +
+      (g.row ? `<span class="link tap" data-g="${gi}">Изменить</span>` : '') + '</div><div class="c">';
+    g.items.forEach((e, ei) => {
+      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f">${esc(e.name)}</span>${daysHtml(e)}</div>`;
+    });
+    if (!g.items.length) html += '<div class="r hint">Нет событий</div>';
+    html += '</div>';
+  });
+  html += '<div class="c gap"><div class="r tap link" id="ng">Новая группа</div></div>';
+  screen(html);
+
+  app.querySelectorAll('[data-g]').forEach(el => el.onclick = () => {
+    const g = groups[el.dataset.g];
+    el.dataset.e !== undefined ? showEvent(g.items[el.dataset.e], g) : showGroup(g);
+  });
+  $('ng').onclick = () => showGroup(null);
+}
+
+
+// ====== Событие (e = null — новое) ======
+function showEvent(e, g) {
+  const isNew = !e;
+  const ev = e || { name: '', start: '', term: '', end: '', days: null, noReset: false };
+  const options = groups.filter(x => x.row)
+    .map(x => `<option value="${x.row}"${x.row === g.row ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+
+  screen(`
+    <div class="h">Название</div>
+    <div class="c"><div class="r"><input id="nm" value="${esc(ev.name)}" placeholder="Netflix"></div></div>
+    <div class="h">Группа</div>
+    <div class="c"><div class="r"><select id="gr">${options}</select></div></div>
+    <div class="h">Дата начала</div>
+    <div class="c">
+      <div class="r"><input id="st" type="date" value="${ymdToIso(ev.start)}"></div>
+      <div class="r"><span class="link tap" id="today">Сегодня</span><span class="link tap" id="yest">Вчера</span>
+        <span class="f"></span><span class="danger tap" id="clr">Стереть</span></div>
+    </div>
+    <div class="h">Срок</div>
+    <div class="c"><div class="chips" id="chips"></div><div class="r"><input id="tm" value="${esc(ev.term)}" placeholder="Без срока"></div></div>
+    ${isNew ? '' : `<div class="c gap">
+      <div class="r"><span class="f hint">Окончание</span>${esc(ev.end || '—')}</div>
+      <div class="r"><span class="f hint">Дней</span><span class="n">${ev.days === null ? '—' : ev.days}</span></div>
+    </div>`}
+    <div class="c gap"><label class="r tap"><span class="f">Не сбрасывать</span><input type="checkbox" id="nr"${ev.noReset ? ' checked' : ''}></label></div>
+    ${isNew ? '' : '<div class="c gap"><div class="r tap danger" id="del">Удалить событие</div></div>'}
+  `, { main: [isNew ? 'Добавить' : 'Сохранить', save], back: showList });
+
+  const st = $('st');
+  const tm = $('tm');
+  $('today').onclick = () => st.value = isoOf(new Date());
+  $('yest').onclick = () => { const d = new Date(); d.setDate(d.getDate() - 1); st.value = isoOf(d); };
+  $('clr').onclick = () => st.value = '';
+
+  const drawChips = () => {
+    $('chips').innerHTML = TERMS.map(t => `<span class="chip tap${tm.value.trim() === t ? ' on' : ''}" data-t="${t}">${t}</span>`).join('');
+    $('chips').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+      tm.value = tm.value.trim() === c.dataset.t ? '' : c.dataset.t;
+      drawChips();
+    });
+  };
+  drawChips();
+  tm.oninput = drawChips;
+
+  if (!isNew) $('del').onclick = () => ask(`Удалить «${ev.name}»?`, ok => ok && run('deleteEvent', { row: ev.row, name: ev.name }));
+
+  function save() {
+    const name = $('nm').value.trim();
+    if (!name) return say('Введите название');
+    const term = tm.value.trim();
+    if (term && !/^\d+\s*[mм]?$/i.test(term)) return say('Срок — число дней (45) или месяцев (2m)');
+    const data = { newName: name, start: isoToYmd(st.value), term: term, group: +$('gr').value, noReset: $('nr').checked };
+    isNew ? run('addEvent', data) : run('saveEvent', Object.assign(data, { row: ev.row, name: ev.name }));
+  }
+}
+
+
+// ====== Группа (g = null — новая) ======
+function showGroup(g) {
+  screen(`
+    <div class="h">Название группы</div>
+    <div class="c"><div class="r"><input id="gn" value="${g ? esc(g.name) : ''}" placeholder="Дом"></div></div>
+    ${g ? `<div class="c gap">
+      <div class="r tap link" id="ae">Добавить событие</div>
+      ${g.items.length ? '' : '<div class="r tap danger" id="dg">Удалить группу</div>'}
+    </div>` : ''}
+  `, { main: [g ? 'Сохранить' : 'Создать', save], back: showList });
+
+  if (g) {
+    $('ae').onclick = () => showEvent(null, g);
+    if (!g.items.length) $('dg').onclick = () => ask(`Удалить группу «${g.name}»?`, ok => ok && run('deleteGroup', { row: g.row, name: g.name }));
+  }
+
+  function save() {
+    const name = $('gn').value.trim();
+    if (!name) return say('Введите название');
+    g ? run('renameGroup', { row: g.row, name: g.name, newName: name }) : run('addGroup', { newName: name });
+  }
+}
+
+
+// ====== Демо ======
+function demoApi(action) {
+  if (action !== 'list') alert('Демо: изменения не сохраняются');
+  const ev = (row, name, start, term, end, days, noReset) => ({ row, name, start, term, end, days, noReset: !!noReset });
+  return { ok: true, groups: [
+    { row: 2, name: '🤖 Подписки', items: [
+      ev(3, 'AmneziaHosting', '20260929', '29', '2026-Oct-28', 2),
+      ev(4, 'JustHost', '20261006', '1m', '2026-Nov-06', -7),
+      ev(5, 'TG Premium', '20260310', '12m', '2027-Mar-10', -131),
+      ev(6, 'YT Premium', '20261007', '3m', '2027-Jan-07', -69),
+      ev(7, 'Мегафон', '', '30', '', null)
+    ] },
+    { row: 8, name: '🏋️ Физкультура', items: [
+      ev(9, 'Плечи', '20260501', '', '', 182),
+      ev(10, 'Грудь', '20260501', '', '', 182)
+    ] },
+    { row: 11, name: '🌱 Лайф', items: [
+      ev(12, 'Зп', '', '', '2026-Nov-05', -6, true),
+      ev(13, 'Тройка', '20261009', '29', '2026-Nov-07', -8),
+      ev(14, 'Стрижка', '20261017', '', '', 13)
+    ] }
+  ] };
+}
+
+load();
+</script>
+</body>
+</html>
