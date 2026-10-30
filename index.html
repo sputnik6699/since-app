@@ -24,15 +24,11 @@ html, body { background: var(--bg); color: var(--text); font: 15px/1.35 -apple-s
 body.ios { font-size: 16px; }
 button, input, select { font: inherit; color: inherit; background: none; border: 0; outline: 0; padding: 0; }
 #app { padding: 4px 0 32px; }
-.h { display: flex; justify-content: space-between; color: var(--hint); padding: 20px 28px 6px; }
+.h { display: flex; justify-content: space-between; color: var(--hint); padding: 12px 28px 4px; }
 .c { background: var(--card); margin: 0 12px; border-radius: 10px; overflow: hidden; }
-.gap { margin-top: 24px; }
-.r { display: flex; align-items: center; gap: 16px; min-height: 44px; padding: 10px 16px; position: relative; }
+.gap { margin-top: 16px; }
+.r { display: flex; align-items: center; gap: 16px; min-height: 34px; padding: 6px 16px; position: relative; }
 .r + .r::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--sep); }
-/* Список плотнее, чем формы */
-.list .h { padding: 12px 28px 4px; }
-.list .r { min-height: 34px; padding: 6px 16px; }
-.list .gap { margin-top: 16px; }
 .f { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .n { font-variant-numeric: tabular-nums; }
 .neg, .danger { color: var(--red); }
@@ -44,8 +40,8 @@ button, input, select { font: inherit; color: inherit; background: none; border:
 input, select { flex: 1; min-width: 0; width: 100%; }
 input::placeholder { color: var(--hint); }
 input[type=checkbox] { flex: none; width: 22px; height: 22px; accent-color: var(--btn); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px 2px; }
-.chip { padding: 4px 10px; border-radius: 16px; background: var(--bg); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 2px; }
+.chip { padding: 3px 10px; border-radius: 16px; background: var(--bg); }
 .chip.on { background: var(--btn); color: var(--btn-text); }
 .demo { display: block; width: calc(100% - 24px); margin: 24px 12px 0; padding: 12px; border-radius: 10px; background: var(--btn); color: var(--btn-text); }
 .msg { padding: 48px 16px; text-align: center; color: var(--hint); }
@@ -162,7 +158,7 @@ function showList() {
     html += '</div>';
   });
   html += '<div class="c gap"><div class="r tap link" id="ng">Новая группа</div></div>';
-  screen(`<div class="list">${html}</div>`);
+  screen(html);
 
   app.querySelectorAll('[data-g]').forEach(el => el.onclick = () => {
     const g = groups[el.dataset.g];
