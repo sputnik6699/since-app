@@ -39,6 +39,8 @@ button, input, select { font: inherit; color: inherit; background: none; border:
 .r.tap:active { background: var(--sep); }
 input, select { flex: 1; min-width: 0; width: 100%; }
 input::placeholder { color: var(--hint); }
+/* Родное поле даты прозрачно лежит поверх строки: видно нашу подпись, а по тапу открывается системный календарь */
+.over { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
 input[type=checkbox] { flex: none; width: 22px; height: 22px; accent-color: var(--btn); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 2px; }
 .chip { padding: 3px 10px; border-radius: 16px; background: var(--bg); }
@@ -53,6 +55,7 @@ input[type=checkbox] { flex: none; width: 22px; height: 22px; accent-color: var(
 // Адрес веб-приложения Apps Script (тот же, что у вебхука бота)
 const API = 'https://script.google.com/macros/s/AKfycbxeE5nvJhyfiQ1V8K7u-5njU5gEhv3Vwv4aHCvz-UU08zsVlsLVPJHenN95wRTgoLU/exec';
 const TERMS = ['29', '30', '1m', '3m', '6m', '12m'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const tg = window.Telegram && Telegram.WebApp;
 // Открыто не из Telegram — показываем пример данных, ничего не сохраняем
@@ -77,6 +80,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 // ymd = 'yyyyMMdd' (как в скрипте), iso = 'yyyy-mm-dd' (как в поле даты)
 const ymdToIso = y => y ? `${y.slice(0, 4)}-${y.slice(4, 6)}-${y.slice(6, 8)}` : '';
 const isoToYmd = s => s ? s.replace(/-/g, '') : '';
+// Как в таблице: 2026-Oct-07
+const prettyIso = s => s ? `${s.slice(0, 4)}-${MONTHS[+s.slice(5, 7) - 1]}-${s.slice(8, 10)}` : '';
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 function say(text) { DEMO ? alert(text) : tg.showAlert(text); }
@@ -182,7 +187,7 @@ function showEvent(e, g) {
     <div class="c"><div class="r"><select id="gr">${options}</select></div></div>
     <div class="h">Дата начала</div>
     <div class="c">
-      <div class="r"><input id="st" type="date" value="${ymdToIso(ev.start)}"></div>
+      <div class="r tap"><span class="f" id="stText"></span><input id="st" class="over" type="date" value="${ymdToIso(ev.start)}"></div>
       <div class="r"><span class="link tap" id="today">Сегодня</span><span class="link tap" id="yest">Вчера</span></div>
     </div>
     <div class="h">Срок</div>
@@ -200,8 +205,16 @@ function showEvent(e, g) {
 
   const st = $('st');
   const tm = $('tm');
-  $('today').onclick = () => st.value = isoOf(new Date());
-  $('yest').onclick = () => { const d = new Date(); d.setDate(d.getDate() - 1); st.value = isoOf(d); };
+  const drawStart = () => {
+    $('stText').textContent = prettyIso(st.value) || 'Не задана';
+    $('stText').className = 'f' + (st.value ? '' : ' hint');
+  };
+  drawStart();
+  st.onchange = st.oninput = drawStart;
+  // На компьютере тап по полю календарь сам не открывает
+  st.onclick = () => { try { st.showPicker(); } catch (err) {} };
+  $('today').onclick = () => { st.value = isoOf(new Date()); drawStart(); };
+  $('yest').onclick = () => { const d = new Date(); d.setDate(d.getDate() - 1); st.value = isoOf(d); drawStart(); };
 
   const drawChips = () => {
     $('chips').innerHTML = TERMS.map(t => `<span class="chip tap${tm.value.trim() === t ? ' on' : ''}" data-t="${t}">${t}</span>`).join('');
