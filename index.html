@@ -156,7 +156,7 @@ function showList() {
       (g.row ? `<span class="link tap" data-g="${gi}">Изменить</span>` : '') + '</div><div class="c">';
     g.items.sort(byDays);
     g.items.forEach((e, ei) => {
-      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f">${esc(e.name)}</span>${daysHtml(e)}</div>`;
+      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f${isPaused(e) ? ' hint' : ''}">${esc(e.name)}</span>${daysHtml(e)}</div>`;
     });
     if (!g.items.length) html += '<div class="r hint">Нет событий</div>';
     html += '</div>';
