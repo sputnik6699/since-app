@@ -34,6 +34,7 @@ button, input, select { font: inherit; color: inherit; background: none; border:
 .neg, .danger { color: var(--red); }
 .pos { color: var(--green); }
 .hint { color: var(--hint); }
+.paused { color: var(--hint); opacity: .5; }
 .link { color: var(--link); }
 .tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .r.tap:active { background: var(--sep); }
@@ -144,7 +145,7 @@ function byDays(a, b) {
 }
 
 function daysHtml(e) {
-  if (isPaused(e)) return '<span class="hint">пауза</span>';
+  if (isPaused(e)) return '<span class="paused">пауза</span>';
   if (e.days === null) return '';
   return `<span class="n ${e.days < 0 ? 'neg' : 'pos'}">${e.days}</span>`;
 }
@@ -156,7 +157,7 @@ function showList() {
       (g.row ? `<span class="link tap" data-g="${gi}">Изменить</span>` : '') + '</div><div class="c">';
     g.items.sort(byDays);
     g.items.forEach((e, ei) => {
-      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f${isPaused(e) ? ' hint' : ''}">${esc(e.name)}</span>${daysHtml(e)}</div>`;
+      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f${isPaused(e) ? ' paused' : ''}">${esc(e.name)}</span>${daysHtml(e)}</div>`;
     });
     if (!g.items.length) html += '<div class="r hint">Нет событий</div>';
     html += '</div>';
