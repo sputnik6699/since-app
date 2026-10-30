@@ -130,8 +130,17 @@ async function load() {
 
 
 // ====== Список ======
+const isPaused = e => !e.start && !e.noReset;
+
+// По возрастанию дней; на паузе и без дней — в конце группы
+function byDays(a, b) {
+  const last = e => isPaused(e) || e.days === null;
+  if (last(a) || last(b)) return last(a) - last(b);
+  return a.days - b.days;
+}
+
 function daysHtml(e) {
-  if (!e.start && !e.noReset) return '<span class="hint">пауза</span>';
+  if (isPaused(e)) return '<span class="hint">пауза</span>';
   if (e.days === null) return '';
   return `<span class="n ${e.days < 0 ? 'neg' : 'pos'}">${e.days}</span>`;
 }
@@ -141,6 +150,7 @@ function showList() {
   groups.forEach((g, gi) => {
     html += `<div class="h"><span>${esc(g.name || 'Без группы')}</span>` +
       (g.row ? `<span class="link tap" data-g="${gi}">Изменить</span>` : '') + '</div><div class="c">';
+    g.items.sort(byDays);
     g.items.forEach((e, ei) => {
       html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f">${esc(e.name)}</span>${daysHtml(e)}</div>`;
     });
@@ -173,8 +183,7 @@ function showEvent(e, g) {
     <div class="h">Дата начала</div>
     <div class="c">
       <div class="r"><input id="st" type="date" value="${ymdToIso(ev.start)}"></div>
-      <div class="r"><span class="link tap" id="today">Сегодня</span><span class="link tap" id="yest">Вчера</span>
-        <span class="f"></span><span class="danger tap" id="clr">Стереть</span></div>
+      <div class="r"><span class="link tap" id="today">Сегодня</span><span class="link tap" id="yest">Вчера</span></div>
     </div>
     <div class="h">Срок</div>
     <div class="c"><div class="chips" id="chips"></div><div class="r"><input id="tm" value="${esc(ev.term)}" placeholder="Без срока"></div></div>
@@ -183,14 +192,16 @@ function showEvent(e, g) {
       <div class="r"><span class="f hint">Дней</span><span class="n">${ev.days === null ? '—' : ev.days}</span></div>
     </div>`}
     <div class="c gap"><label class="r tap"><span class="f">Не сбрасывать</span><input type="checkbox" id="nr"${ev.noReset ? ' checked' : ''}></label></div>
-    ${isNew ? '' : '<div class="c gap"><div class="r tap danger" id="del">Удалить событие</div></div>'}
+    ${isNew ? '' : `<div class="c gap">
+      ${isPaused(ev) || ev.noReset ? '' : '<div class="r tap link" id="pause">Пауза</div>'}
+      <div class="r tap danger" id="del">Удалить событие</div>
+    </div>`}
   `, { main: [isNew ? 'Добавить' : 'Сохранить', save], back: showList });
 
   const st = $('st');
   const tm = $('tm');
   $('today').onclick = () => st.value = isoOf(new Date());
   $('yest').onclick = () => { const d = new Date(); d.setDate(d.getDate() - 1); st.value = isoOf(d); };
-  $('clr').onclick = () => st.value = '';
 
   const drawChips = () => {
     $('chips').innerHTML = TERMS.map(t => `<span class="chip tap${tm.value.trim() === t ? ' on' : ''}" data-t="${t}">${t}</span>`).join('');
@@ -203,6 +214,11 @@ function showEvent(e, g) {
   tm.oninput = drawChips;
 
   if (!isNew) $('del').onclick = () => ask(`Удалить «${ev.name}»?`, ok => ok && run('deleteEvent', { row: ev.row, name: ev.name }));
+  // Пауза = стереть дату начала, остальное как в таблице (несохранённые правки на экране не трогаем).
+  // Вернуть прежнюю дату — /undo в боте
+  if ($('pause')) $('pause').onclick = () => run('saveEvent', {
+    row: ev.row, name: ev.name, newName: ev.name, start: '', term: ev.term, group: g.row, noReset: ev.noReset
+  });
 
   function save() {
     const name = $('nm').value.trim();
