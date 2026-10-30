@@ -19,9 +19,9 @@
   --btn-text: var(--tg-theme-button-text-color, #fff);
 }
 * { box-sizing: border-box; margin: 0; }
-/* Один шрифт и один размер — как в интерфейсе Telegram (17 на iOS, 16 на Android) */
-html, body { background: var(--bg); color: var(--text); font: 16px/1.35 -apple-system, system-ui, Roboto, "Segoe UI", sans-serif; -webkit-text-size-adjust: 100%; }
-body.ios { font-size: 17px; }
+/* Один шрифт и один размер — на 1px мельче интерфейса Telegram (17 на iOS, 16 на Android) */
+html, body { background: var(--bg); color: var(--text); font: 15px/1.35 -apple-system, system-ui, Roboto, "Segoe UI", sans-serif; -webkit-text-size-adjust: 100%; }
+body.ios { font-size: 16px; }
 button, input, select { font: inherit; color: inherit; background: none; border: 0; outline: 0; padding: 0; }
 #app { padding: 4px 0 32px; }
 .h { display: flex; justify-content: space-between; color: var(--hint); padding: 20px 28px 6px; }
@@ -29,6 +29,10 @@ button, input, select { font: inherit; color: inherit; background: none; border:
 .gap { margin-top: 24px; }
 .r { display: flex; align-items: center; gap: 16px; min-height: 44px; padding: 10px 16px; position: relative; }
 .r + .r::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: .5px solid var(--sep); }
+/* Список плотнее, чем формы */
+.list .h { padding: 12px 28px 4px; }
+.list .r { min-height: 34px; padding: 6px 16px; }
+.list .gap { margin-top: 16px; }
 .f { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .n { font-variant-numeric: tabular-nums; }
 .neg, .danger { color: var(--red); }
@@ -158,7 +162,7 @@ function showList() {
     html += '</div>';
   });
   html += '<div class="c gap"><div class="r tap link" id="ng">Новая группа</div></div>';
-  screen(html);
+  screen(`<div class="list">${html}</div>`);
 
   app.querySelectorAll('[data-g]').forEach(el => el.onclick = () => {
     const g = groups[el.dataset.g];
