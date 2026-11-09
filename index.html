@@ -57,6 +57,17 @@ const API = 'https://script.google.com/macros/s/AKfycbxeE5nvJhyfiQ1V8K7u-5njU5gE
 const TERMS = ['29', '30', '1m', '3m', '6m', '12m'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Статусы события — те же слова, что в колонке A таблицы
+const STATUSES = [
+  { key: 'active', emoji: '🍏', title: 'старт, срок, окончание' },
+  { key: 'pause',  emoji: '🍋', title: 'пауза, даты сохраняются' },
+  { key: 'count',  emoji: '🔢', title: 'только дни от старта' },
+  { key: 'till',   emoji: '⏳', title: 'только дата в будущем' }
+];
+const STATUS_BY_KEY = {};
+STATUSES.forEach(s => STATUS_BY_KEY[s.key] = s);
+const DEFAULT_STATUS = 'active';
+
 const tg = window.Telegram && Telegram.WebApp;
 // Открыто не из Telegram — показываем пример данных, ничего не сохраняем
 const DEMO = !tg || !tg.initData;
@@ -83,6 +94,7 @@ const isoToYmd = s => s ? s.replace(/-/g, '') : '';
 // Как в таблице: 2026-Oct-07
 const prettyIso = s => s ? `${s.slice(0, 4)}-${MONTHS[+s.slice(5, 7) - 1]}-${s.slice(8, 10)}` : '';
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const statusOf = e => e.status || '';
 
 function say(text) { DEMO ? alert(text) : tg.showAlert(text); }
 function ask(text, cb) { DEMO ? cb(confirm(text)) : tg.showConfirm(text, cb); }
@@ -135,18 +147,27 @@ async function load() {
 
 
 // ====== Список ======
-const isPaused = e => !e.start && !e.noReset;
+const isPaused = e => statusOf(e) === 'pause';
 
-// По возрастанию дней; на паузе и без дней — в конце группы
+// Пауза и события без дней — в конце группы, остальные по возрастанию дней
 function byDays(a, b) {
   const last = e => isPaused(e) || e.days === null;
   if (last(a) || last(b)) return last(a) - last(b);
   return a.days - b.days;
 }
 
+// Слева от названия — только там, где статус неочевиден из самих дней
+function mark(e) {
+  const st = statusOf(e);
+  if (st === 'count') return '🔢 ';
+  if (st === 'till') return '⏳ ';
+  if (!st) return '• ';
+  return '';
+}
+
 function daysHtml(e) {
   if (isPaused(e)) return '<span class="paused">пауза</span>';
-  if (e.days === null) return '';
+  if (e.days === null) return statusOf(e) ? '' : '<span class="hint">без статуса</span>';
   return `<span class="n ${e.days < 0 ? 'neg' : 'pos'}">${e.days}</span>`;
 }
 
@@ -157,7 +178,7 @@ function showList() {
       (g.row ? `<span class="link tap" data-g="${gi}">Изменить</span>` : '') + '</div><div class="c">';
     g.items.sort(byDays);
     g.items.forEach((e, ei) => {
-      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f${isPaused(e) ? ' paused' : ''}">${esc(e.name)}</span>${daysHtml(e)}</div>`;
+      html += `<div class="r tap" data-g="${gi}" data-e="${ei}"><span class="f${isPaused(e) ? ' paused' : ''}">${mark(e)}${esc(e.name)}</span>${daysHtml(e)}</div>`;
     });
     if (!g.items.length) html += '<div class="r hint">Нет событий</div>';
     html += '</div>';
@@ -176,71 +197,170 @@ function showList() {
 // ====== Событие (e = null — новое) ======
 function showEvent(e, g) {
   const isNew = !e;
-  const ev = e || { name: '', start: '', term: '', end: '', days: null, noReset: false };
-  const options = groups.filter(x => x.row)
+  // Черновик: что сейчас на экране
+  const d = {
+    row: isNew ? null : e.row,
+    name: isNew ? '' : e.name,
+    status: isNew ? DEFAULT_STATUS : (statusOf(e) || DEFAULT_STATUS),
+    start: isNew ? '' : (e.start || ''),
+    end: isNew ? '' : (e.endYmd || ''),
+    endText: isNew ? '' : (e.end || ''),
+    endFormula: isNew ? false : !!e.endFormula, // у ⏳till в СТОП бывает формула (ближайшая Зп)
+    term: isNew ? '' : (e.term || ''),
+    days: isNew ? null : e.days
+  };
+  // Исходные значения — нужны для «Пауза» / «Включить»: они не должны терять несохранённые правки дат
+  const saved = { start: d.start, end: d.end, term: d.term };
+
+  const groupOptions = groups.filter(x => x.row)
     .map(x => `<option value="${x.row}"${x.row === g.row ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
 
-  screen(`
-    <div class="h">Название</div>
-    <div class="c"><div class="r"><input id="nm" value="${esc(ev.name)}" placeholder="Netflix"></div></div>
-    <div class="h">Группа</div>
-    <div class="c"><div class="r"><select id="gr">${options}</select></div></div>
-    <div class="h">Дата начала</div>
-    <div class="c">
-      <div class="r tap"><span class="f" id="stText"></span><input id="st" class="over" type="date" value="${ymdToIso(ev.start)}"></div>
-      <div class="r"><span class="link tap" id="today">Сегодня</span><span class="link tap" id="yest">Вчера</span></div>
-    </div>
-    <div class="h">Срок</div>
-    <div class="c"><div class="chips" id="chips"></div><div class="r"><input id="tm" value="${esc(ev.term)}" placeholder="Без срока"></div></div>
-    ${isNew ? '' : `<div class="c gap">
-      <div class="r"><span class="f hint">Окончание</span>${esc(ev.end || '—')}</div>
-      <div class="r"><span class="f hint">Дней</span><span class="n">${ev.days === null ? '—' : ev.days}</span></div>
-    </div>`}
-    ${isNew ? '' : `<div class="c gap">
-      ${isPaused(ev) || ev.noReset ? '' : '<div class="r tap link" id="pause">Пауза</div>'}
-      <div class="r tap danger" id="del">Удалить событие</div>
-    </div>`}
-  `, { main: [isNew ? 'Добавить' : 'Сохранить', save], back: showList });
+  function statusChipsHtml() {
+    return `<div class="h">Статус<span class="hint" id="stHint">${esc(STATUS_BY_KEY[d.status].title)}</span></div>
+      <div class="c"><div class="chips" id="schips">${STATUSES.map(s =>
+        `<span class="chip tap${s.key === d.status ? ' on' : ''}" data-s="${s.key}">${s.emoji} ${s.key}</span>`).join('')}</div></div>`;
+  }
 
-  const st = $('st');
-  const tm = $('tm');
-  const drawStart = () => {
-    $('stText').textContent = prettyIso(st.value) || 'Не задана';
-    $('stText').className = 'f' + (st.value ? '' : ' hint');
-  };
-  drawStart();
-  st.onchange = st.oninput = drawStart;
-  // На компьютере тап по полю календарь сам не открывает
-  st.onclick = () => { try { st.showPicker(); } catch (err) {} };
-  $('today').onclick = () => { st.value = isoOf(new Date()); drawStart(); };
-  $('yest').onclick = () => { const d = new Date(); d.setDate(d.getDate() - 1); st.value = isoOf(d); drawStart(); };
+  function totalsHtml() {
+    if (isNew) return '';
+    // У ⏳till «окончание» — это и есть та самая будущая дата, второй раз не показываем
+    const endLine = d.endText && d.status !== 'till'
+      ? `<div class="r"><span class="f hint">Окончание</span><span class="n">${esc(d.endText)}${d.endFormula ? ' <span class="hint">формула</span>' : ''}</span></div>`
+      : '';
+    return `<div class="c gap">${endLine}
+      <div class="r"><span class="f hint">Дней</span><span class="n ${d.days === null ? '' : (d.days < 0 ? 'neg' : 'pos')}">${d.days === null ? '—' : d.days}</span></div>
+    </div>`;
+  }
 
-  const drawChips = () => {
-    $('chips').innerHTML = TERMS.map(t => `<span class="chip tap${tm.value.trim() === t ? ' on' : ''}" data-t="${t}">${t}</span>`).join('');
-    $('chips').querySelectorAll('.chip').forEach(c => c.onclick = () => {
-      tm.value = tm.value.trim() === c.dataset.t ? '' : c.dataset.t;
-      drawChips();
+  // Поля зависят от статуса: у count нет срока, у till нет старта
+  function fieldsHtml() {
+    if (d.status === 'till') {
+      const dateRow = d.endFormula
+        ? `<div class="r"><span class="f">${esc(d.endText || '—')}</span><span class="hint">формула</span></div>`
+        : `<div class="r tap"><span class="f" id="enText"></span><input id="en" class="over" type="date" value="${ymdToIso(d.end)}"></div>
+           <div class="r"><span class="link tap" id="etoday">Сегодня</span><span class="link tap" id="etomorrow">Завтра</span></div>`;
+      return `<div class="h">Дата в будущем</div><div class="c">${dateRow}</div>` + totalsHtml();
+    }
+
+    const startBlock = `<div class="h">Дата начала</div>
+      <div class="c">
+        <div class="r tap"><span class="f" id="stText"></span><input id="st" class="over" type="date" value="${ymdToIso(d.start)}"></div>
+        <div class="r"><span class="link tap" id="today">Сегодня</span><span class="link tap" id="yest">Вчера</span></div>
+      </div>`;
+
+    const termBlock = d.status === 'count' ? '' : `<div class="h">Срок</div>
+      <div class="c"><div class="chips" id="chips"></div><div class="r"><input id="tm" value="${esc(d.term)}" placeholder="Без срока"></div></div>`;
+
+    return startBlock + termBlock + totalsHtml();
+  }
+
+  function actionsHtml() {
+    if (isNew) return '';
+    const resume = d.status === 'pause'
+      ? '<div class="r tap link" id="resume">Вернуть в работу</div>'
+      : '<div class="r tap link" id="pause">Поставить на паузу</div>';
+    return `<div class="c gap">${resume}<div class="r tap danger" id="del">Удалить событие</div></div>`;
+  }
+
+  function render() {
+    screen(`
+      <div class="h">Название</div>
+      <div class="c"><div class="r"><input id="nm" value="${esc(d.name)}" placeholder="Netflix"></div></div>
+      <div class="h">Группа</div>
+      <div class="c"><div class="r"><select id="gr">${groupOptions}</select></div></div>
+      ${statusChipsHtml()}
+      ${fieldsHtml()}
+      ${actionsHtml()}
+    `, { main: [isNew ? 'Добавить' : 'Сохранить', save], back: showList });
+
+    $('nm').oninput = () => { d.name = $('nm').value; };
+    $('schips').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+      sync();
+      d.status = c.dataset.s;
+      render();
     });
-  };
-  drawChips();
-  tm.oninput = drawChips;
 
-  if (!isNew) $('del').onclick = () => ask(`Удалить «${ev.name}»?`, ok => ok && run('deleteEvent', { row: ev.row, name: ev.name }));
-  // Пауза = стереть дату начала, остальное как в таблице (несохранённые правки на экране не трогаем).
-  // Вернуть прежнюю дату — /undo в боте
-  if ($('pause')) $('pause').onclick = () => run('saveEvent', {
-    row: ev.row, name: ev.name, newName: ev.name, start: '', term: ev.term, group: g.row, noReset: ev.noReset
-  });
+    // Дата начала
+    const st = $('st');
+    if (st) {
+      const drawStart = () => {
+        $('stText').textContent = prettyIso(st.value) || 'Не задана';
+        $('stText').className = 'f' + (st.value ? '' : ' hint');
+      };
+      drawStart();
+      st.onchange = st.oninput = drawStart;
+      // На компьютере тап по полю календарь сам не открывает
+      st.onclick = () => { try { st.showPicker(); } catch (err) {} };
+      $('today').onclick = () => { st.value = isoOf(new Date()); drawStart(); };
+      $('yest').onclick = () => { const x = new Date(); x.setDate(x.getDate() - 1); st.value = isoOf(x); drawStart(); };
+    }
+
+    // Дата в будущем (⏳till без формулы)
+    const en = $('en');
+    if (en) {
+      const drawEnd = () => {
+        $('enText').textContent = prettyIso(en.value) || 'Не задана';
+        $('enText').className = 'f' + (en.value ? '' : ' hint');
+      };
+      drawEnd();
+      en.onchange = en.oninput = drawEnd;
+      en.onclick = () => { try { en.showPicker(); } catch (err) {} };
+      $('etoday').onclick = () => { en.value = isoOf(new Date()); drawEnd(); };
+      $('etomorrow').onclick = () => { const x = new Date(); x.setDate(x.getDate() + 1); en.value = isoOf(x); drawEnd(); };
+    }
+
+    // Срок
+    const tm = $('tm');
+    if (tm) {
+      const drawChips = () => {
+        $('chips').innerHTML = TERMS.map(t => `<span class="chip tap${tm.value.trim() === t ? ' on' : ''}" data-t="${t}">${t}</span>`).join('');
+        $('chips').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+          tm.value = tm.value.trim() === c.dataset.t ? '' : c.dataset.t;
+          drawChips();
+        });
+      };
+      drawChips();
+      tm.oninput = () => { d.term = tm.value; drawChips(); };
+    }
+
+    if ($('del')) $('del').onclick = () => ask(`Удалить «${d.name}»?`, ok => ok && run('deleteEvent', { row: d.row, name: d.name }));
+
+    // Пауза и возврат меняют только статус: даты остаются в таблице как есть
+    if ($('pause')) $('pause').onclick = () => changeStatus('pause');
+    if ($('resume')) $('resume').onclick = () => changeStatus('active');
+
+    function changeStatus(status) {
+      run('saveEvent', {
+        row: d.row, name: e.name, newName: e.name, status: status,
+        start: saved.start, end: saved.end, term: saved.term, group: g.row
+      });
+    }
+  }
+
+  // Снять значения с экрана в черновик (перед перерисовкой)
+  function sync() {
+    if ($('nm')) d.name = $('nm').value.trim();
+    if ($('st')) d.start = isoToYmd($('st').value);
+    if ($('en')) d.end = isoToYmd($('en').value);
+    if ($('tm')) d.term = $('tm').value.trim();
+  }
 
   function save() {
-    const name = $('nm').value.trim();
-    if (!name) return say('Введите название');
-    const term = tm.value.trim();
-    if (term && !/^\d+\s*[mм]?$/i.test(term)) return say('Срок — число дней (45) или месяцев (2m)');
-    // «Не сбрасывать» в приложении не меняется — передаём как было (это только Зп)
-    const data = { newName: name, start: isoToYmd(st.value), term: term, group: +$('gr').value, noReset: ev.noReset };
-    isNew ? run('addEvent', data) : run('saveEvent', Object.assign(data, { row: ev.row, name: ev.name }));
+    sync();
+    if (!d.name) return say('Введите название');
+    if (d.status === 'active' && d.term && !/^\d+\s*[mм]?$/i.test(d.term)) return say('Срок — число дней (45) или месяцев (2m)');
+    const data = {
+      newName: d.name,
+      status: d.status,
+      start: d.start,
+      end: d.end,
+      term: d.term,
+      group: +$('gr').value
+    };
+    isNew ? run('addEvent', data) : run('saveEvent', Object.assign(data, { row: d.row, name: e.name }));
   }
+
+  render();
 }
 
 
@@ -271,23 +391,25 @@ function showGroup(g) {
 // ====== Демо ======
 function demoApi(action) {
   if (action !== 'list') alert('Демо: изменения не сохраняются');
-  const ev = (row, name, start, term, end, days, noReset) => ({ row, name, start, term, end, days, noReset: !!noReset });
+  const ev = (row, status, name, start, term, end, endYmd, days, endFormula) => ({
+    row, status, statusText: status, name, start, startText: start, term, end, endYmd, days, endFormula: !!endFormula
+  });
   return { ok: true, groups: [
-    { row: 2, name: '🤖 Подписки', items: [
-      ev(3, 'AmneziaHosting', '20260929', '29', '2026-Oct-28', 2),
-      ev(4, 'JustHost', '20261006', '1m', '2026-Nov-06', -7),
-      ev(5, 'TG Premium', '20260310', '12m', '2027-Mar-10', -131),
-      ev(6, 'YT Premium', '20261007', '3m', '2027-Jan-07', -69),
-      ev(7, 'Мегафон', '', '30', '', null)
+    { row: 2, name: '🌱 Life', items: [
+      ev(3, 'till', 'Зп', '', '', '2026-Nov-20', '20261120', -11, true),
+      ev(4, 'count', 'Стрижка', '20261017', '', '', '', 23),
+      ev(5, 'active', 'Тройка', '20261109', '29', '2026-Dec-08', '20261208', -29),
+      ev(6, 'pause', 'Москвенок', '20260903', '29', '2026-Oct-02', '20261002', 38)
     ] },
-    { row: 8, name: '🏋️ Физкультура', items: [
-      ev(9, 'Плечи', '20260501', '', '', 182),
-      ev(10, 'Грудь', '20260501', '', '', 182)
+    { row: 7, name: '🧸 Base', items: [
+      ev(8, 'active', 'Мегафон', '20261018', '30', '2026-Nov-17', '20261117', -8),
+      ev(9, 'active', 'TG Premium', '20260310', '12m', '2027-Mar-10', '20270310', -121),
+      ev(10, 'active', 'YT Premium', '20261007', '3m', '2027-Jan-07', '20270107', -59),
+      ev(11, 'active', 'Nordpass', '20250208', '24m', '2027-Feb-08', '20270208', -91)
     ] },
-    { row: 11, name: '🌱 Лайф', items: [
-      ev(12, 'Зп', '', '', '2026-Nov-05', -6, true),
-      ev(13, 'Тройка', '20261009', '29', '2026-Nov-07', -8),
-      ev(14, 'Стрижка', '20261017', '', '', 13)
+    { row: 20, name: '🏋️ Sport', items: [
+      ev(21, 'count', 'Плечи', '20260501', '', '', '', 192),
+      ev(22, 'count', 'Грудь', '20260501', '', '', '', 192)
     ] }
   ] };
 }
